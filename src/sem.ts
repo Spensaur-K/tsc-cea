@@ -105,7 +105,6 @@ const { compilerOptions } = require("../tsconfig.json");
 compilerOptions.lib = [];
 
 import { resolve } from "path";
-import { POINT_CONVERSION_COMPRESSED } from "constants";
 
 const target = resolve(__dirname, "../samples/test.ts");
 const prog = ts.createProgram([target], compilerOptions);

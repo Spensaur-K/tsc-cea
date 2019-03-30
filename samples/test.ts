@@ -1,14 +1,12 @@
 import "../src/must_execute";
 
-function main() {
-    function foo() {
 
-    }
-    if (Math.random()) {
-        foo();
-    } else {
-        foo();
-    }
+function helper(baz: () => void) {
+    baz();
+}
+
+function main(foo: () => void) {
+    helper(foo);
     if (foo.mustHaveExecuted()) {
         console.log("YES!");
     } else {
@@ -16,4 +14,7 @@ function main() {
     }
 }
 
-main();
+main(() => 0);
+
+
+

@@ -3,7 +3,7 @@ import { resolve } from "path";
 import * as ts from "typescript";
 import stackTrace from "stack-trace";
 
-import { execute as symExec } from "./sonarts/sonarts-core/src/se/SymbolicExecution";
+import { execute as symExec, ExecutionResult } from "./sonarts/sonarts-core/src/se/SymbolicExecution";
 import { build as buildCFG } from "./sonarts/sonarts-core/src/cfg/builder";
 import { ProgramState, createInitialState } from "./sonarts/sonarts-core/src/se/programStates";
 import { SymbolicValueType } from "./sonarts/sonarts-core/src/se/symbolicValues";
@@ -12,7 +12,7 @@ import { SymbolTableBuilder } from "./sonarts/sonarts-core/src/symbols/builder";
 import { SymbolTable, UsageFlag } from "./sonarts/sonarts-core/src/symbols/table";
 import { firstLocalAncestor, FUNCTION_LIKE } from "./sonarts/sonarts-core/src/utils/navigation";
 import { TypedSonarRuleVisitor } from "./sonarts/sonarts-core/src/utils/sonarAnalysis";
-import { isArrowFunction, isBlock, isIdentifier, isPropertyAccessExpression } from "./sonarts/sonarts-core/src/utils/nodes";
+import { isArrowFunction, isBlock, isIdentifier, isPropertyAccessExpression, isFunctionDeclaration, isFunctionLikeDeclaration } from "./sonarts/sonarts-core/src/utils/nodes";
 import { TreeVisitor } from "./sonarts/sonarts-core/src/utils/visitor";
 
 
@@ -32,10 +32,10 @@ function getStatements(functionLike: ts.FunctionLikeDeclaration): ts.Statement[]
 }
 
 class FunctionFinder extends TreeVisitor {
-    private result: ts.FunctionLikeDeclaration | null = null;
+    private result: ts.FunctionLikeDeclaration | ts.ParameterDeclaration | null = null;
     private name: string | null = null;
     private obj: string | null = null;
-    constructor(private src: ts.SourceFile) {
+    constructor(private src: ts.SourceFile, private prog: ts.Program) {
         super();
     }
     protected visitFunctionLikeDeclaration(node: ts.FunctionLikeDeclaration) {
@@ -43,6 +43,13 @@ class FunctionFinder extends TreeVisitor {
             this.result = node;
         } else {
             super.visitFunctionLikeDeclaration(node);
+        }
+    }
+    protected visitParameterDeclaration(node: ts.ParameterDeclaration) {
+        if ((this.name && node.name) && (this.name === node.name.getText())) {
+            this.result = node;
+        } else {
+            super.visitParameterDeclaration(node);
         }
     }
     public findName(name: string): ts.FunctionLikeDeclaration | null {
@@ -92,16 +99,57 @@ declare global {
 const results: any = {}
 const programs: any = {};
 
-function symbolicAnalysis(fileName: string, funcName: string) {
+function symbolicAnalysis(fileName: string, funcName: string): ExecutionResult {
     const [prog, src, symbols] = programs[fileName];
-    const finder = new FunctionFinder(src);
+    const finder = new FunctionFinder(src, prog);
     const containerFuncNode = finder.findName(funcName)!;
     const stmts = getStatements(containerFuncNode);
     const cfg = buildCFG(stmts)!;
     const ps = createInitialState(containerFuncNode, prog);
 
-    const result = symExec(cfg, symbols, ps);
-    return result;
+    const result = symExec(cfg, symbols, ps, () => true, interproceduralExecutionCheck(fileName));
+    return result!;
+}
+
+const analyzedProcedures = new Map<ts.FunctionLikeDeclaration, boolean[]>();
+
+function analyzeFunctionDeclaration(fileName: string, func: ts.FunctionLikeDeclaration): boolean[] {
+    const [prog, src, symbols] = programs[fileName];
+    const stmts = getStatements(func);
+    const cfg = buildCFG(stmts)!;
+    const ps = createInitialState(func, prog);
+
+    const result = symExec(cfg, symbols, ps, () => true, interproceduralExecutionCheck(fileName))!;
+
+    const answers = (new Array(func.parameters.length)).fill(true);
+    const pss = result.programNodes.get(cfg.end) || [];
+    func.parameters.forEach((param, i) => {
+        const symbol = (param as any).symbol;
+        answers[i] = answers[i] && alwaysExecuted(pss, symbol);
+    });
+
+    return answers;
+}
+
+function interproceduralExecutionCheck(fileName: string, ) {
+    const [prog, src, symbols] = programs[fileName];
+    function check(callExpression: ts.CallExpression): boolean[] {
+        const usage = symbols.getUsage(callExpression.expression);
+        if (usage && usage.symbol.declarations.length > 0) {
+            const declaration = usage.symbol.declarations[0];
+            if (isFunctionLikeDeclaration(declaration)) {
+                if (analyzedProcedures.has(declaration)) {
+                    return analyzedProcedures.get(declaration)!;
+                } else {
+                    const result = analyzeFunctionDeclaration(fileName, declaration);
+                    analyzedProcedures.set(declaration, result);
+                    return result;
+                }
+            }
+        }
+        return [];
+    }
+    return check;
 }
 
 
@@ -130,8 +178,9 @@ Function.prototype.mustHaveExecuted = function (): boolean {
     const callFinder = new FunctionCallFinder(src);
     const callSite = callFinder.find(lineNumber);
 
-    const targetFinder = new FunctionFinder(src);
-    const targetFunc = targetFinder.findName(this.name)!;
+    const targetFinder = new FunctionFinder(src, prog);
+    const instanceName = (callSite as any).expression.expression.getText();
+    const targetFunc = targetFinder.findName(instanceName)!;
 
     const ps = result.programNodes.get(callSite);
 

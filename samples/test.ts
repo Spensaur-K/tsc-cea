@@ -1,6 +1,5 @@
 import "../src/must_execute";
 
-
 function helper(baz: () => void) {
     baz();
 }
@@ -15,6 +14,5 @@ function main(foo: () => void) {
 }
 
 main(() => 0);
-
 
 

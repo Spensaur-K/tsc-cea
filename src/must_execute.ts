@@ -9,10 +9,10 @@ import { ProgramState, createInitialState } from "./sonarts/sonarts-core/src/se/
 import { SymbolicValueType } from "./sonarts/sonarts-core/src/se/symbolicValues";
 import { isTruthy, Constraint, isFalsy, ConstraintKind, isExecuted } from "./sonarts/sonarts-core/src/se/constraints";
 import { SymbolTableBuilder } from "./sonarts/sonarts-core/src/symbols/builder";
-import { SymbolTable, UsageFlag } from "./sonarts/sonarts-core/src/symbols/table";
+import { SymbolTable, UsageFlag, Usage } from "./sonarts/sonarts-core/src/symbols/table";
 import { firstLocalAncestor, FUNCTION_LIKE } from "./sonarts/sonarts-core/src/utils/navigation";
 import { TypedSonarRuleVisitor } from "./sonarts/sonarts-core/src/utils/sonarAnalysis";
-import { isArrowFunction, isBlock, isIdentifier, isPropertyAccessExpression, isFunctionDeclaration, isFunctionLikeDeclaration } from "./sonarts/sonarts-core/src/utils/nodes";
+import { isArrowFunction, isBlock, isIdentifier, isPropertyAccessExpression, isFunctionDeclaration, isFunctionLikeDeclaration, isCallExpression } from "./sonarts/sonarts-core/src/utils/nodes";
 import { TreeVisitor } from "./sonarts/sonarts-core/src/utils/visitor";
 
 
@@ -44,11 +44,12 @@ class FunctionCallFinder extends TreeVisitor {
             if (methodName !== "mustHaveExecuted") {
                 break nope;
             }
-            const line = this.src.getLineAndCharacterOfPosition(node.expression.getStart()).line + 1;
-            if (this.line - line < 2) {
+            //const line = this.src.getLineAndCharacterOfPosition(node.expression.getStart()).line + 1;
+            //if (this.line - line < 2) {
                 this.result = node;
-                return;
-            }
+                // Line numbers don't work, fuck it
+            //    return;
+            //}
         }
         super.visitCallExpression(node);
     }
@@ -126,6 +127,29 @@ function alwaysExecuted(pss: ProgramState[], func: ts.Symbol) {
     return pss.every(ps => isExecuted(ps.getConstraints(ps.sv(func)!)));
 }
 
+function getTargetFunctionSymbol(callSite: ts.Node, symbols: SymbolTable): ts.Symbol {
+    const kinder = ts.SyntaxKind;
+    const k = kinder[callSite.kind];
+    let id: ts.Identifier;
+    if (isCallExpression(callSite)) {
+        if (isPropertyAccessExpression(callSite.expression)) {
+            if (isPropertyAccessExpression(callSite.expression.expression)) {
+                id = callSite.expression.expression.name;
+            } else if (isIdentifier(callSite.expression.expression)) {
+                id = callSite.expression.expression;
+            } else {
+                throw "up";
+            }
+        } else {
+            throw "up";
+        }
+    } else {
+        throw "up";
+    }
+    const targetFuncSymbol = symbols.getUsage(id)!.symbol;
+    return targetFuncSymbol;
+}
+
 Function.prototype.mustHaveExecuted = function (): boolean {
     const err = new Error();
     const trace = stackTrace.parse(err)[1];
@@ -138,8 +162,6 @@ Function.prototype.mustHaveExecuted = function (): boolean {
     programs[fileName] = [prog, src, symbols];
     const key = fileName + funcName;
     let result;
-
-
 
     const callFinder = new FunctionCallFinder(src);
     const callSite = callFinder.find(lineNumber)!;
@@ -154,18 +176,13 @@ Function.prototype.mustHaveExecuted = function (): boolean {
         throw "up";
     }
     let foo: ts.Identifier;
-    
-    // Oh good lord
-    const targetFuncSymbol = (symbols as any).usages.get((callSite as any).expression!.expression!)!.symbol;
-    if (!targetFuncSymbol) {
-        throw "up";
-    }
-    const targetFuncDecl = targetFuncSymbol.declarations[0];
+
+    const targetFuncSymbol = getTargetFunctionSymbol(callSite, symbols);
 
 
     const ps = result.programNodes.get(callSite);
 
-
+    debugger;
     return alwaysExecuted(result.programNodes.get(callSite), targetFuncSymbol);
 
 }

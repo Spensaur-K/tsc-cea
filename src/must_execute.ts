@@ -31,36 +31,6 @@ function getStatements(functionLike: ts.FunctionLikeDeclaration): ts.Statement[]
     return (undefined)!;
 }
 
-class FunctionFinder extends TreeVisitor {
-    private result: ts.FunctionLikeDeclaration | ts.ParameterDeclaration | null = null;
-    private name: string | null = null;
-    private obj: string | null = null;
-    constructor(private src: ts.SourceFile, private prog: ts.Program) {
-        super();
-    }
-    protected visitFunctionLikeDeclaration(node: ts.FunctionLikeDeclaration) {
-        if ((this.name && node.name) && (this.name === node.name.getText())) {
-            this.result = node;
-        } else {
-            super.visitFunctionLikeDeclaration(node);
-        }
-    }
-    protected visitParameterDeclaration(node: ts.ParameterDeclaration) {
-        if ((this.name && node.name) && (this.name === node.name.getText())) {
-            this.result = node;
-        } else {
-            super.visitParameterDeclaration(node);
-        }
-    }
-    public findName(name: string): ts.FunctionLikeDeclaration | null {
-        this.result = null;
-        this.obj = null;
-        this.name = name;
-        this.visit(this.src);
-        return this.result;
-    }
-}
-
 class FunctionCallFinder extends TreeVisitor {
     private result: ts.CallExpression | null = null;
     private line: number = -1;
@@ -69,6 +39,7 @@ class FunctionCallFinder extends TreeVisitor {
     }
     protected visitCallExpression(node: ts.CallExpression) {
         nope: if (isPropertyAccessExpression(node.expression)) {
+
             const methodName = node.expression.name.getText();
             if (methodName !== "mustHaveExecuted") {
                 break nope;
@@ -99,13 +70,11 @@ declare global {
 const results: any = {}
 const programs: any = {};
 
-function symbolicAnalysis(fileName: string, funcName: string): ExecutionResult {
+function symbolicAnalysis(fileName: string, enclosingFunc: ts.FunctionLikeDeclaration): ExecutionResult {
     const [prog, src, symbols] = programs[fileName];
-    const finder = new FunctionFinder(src, prog);
-    const containerFuncNode = finder.findName(funcName)!;
-    const stmts = getStatements(containerFuncNode);
+    const stmts = getStatements(enclosingFunc);
     const cfg = buildCFG(stmts)!;
-    const ps = createInitialState(containerFuncNode, prog);
+    const ps = createInitialState(enclosingFunc, prog);
 
     const result = symExec(cfg, symbols, ps, () => true, interproceduralExecutionCheck(fileName));
     return result!;
@@ -169,22 +138,34 @@ Function.prototype.mustHaveExecuted = function (): boolean {
     programs[fileName] = [prog, src, symbols];
     const key = fileName + funcName;
     let result;
-    if (key in results) {
-        result = results[key];
-    } else {
-        result = results[key] = symbolicAnalysis(fileName, funcName);
-    }
+
+
 
     const callFinder = new FunctionCallFinder(src);
-    const callSite = callFinder.find(lineNumber);
+    const callSite = callFinder.find(lineNumber)!;
+    const enclosingFunc = firstLocalAncestor(callSite, ...FUNCTION_LIKE)!;
+    if (isFunctionLikeDeclaration(enclosingFunc)) {
+        if (key in results) {
+            result = results[key];
+        } else {
+            result = results[key] = symbolicAnalysis(fileName, enclosingFunc);
+        }
+    } else {
+        throw "up";
+    }
+    let foo: ts.Identifier;
+    
+    // Oh good lord
+    const targetFuncSymbol = (symbols as any).usages.get((callSite as any).expression!.expression!)!.symbol;
+    if (!targetFuncSymbol) {
+        throw "up";
+    }
+    const targetFuncDecl = targetFuncSymbol.declarations[0];
 
-    const targetFinder = new FunctionFinder(src, prog);
-    const instanceName = (callSite as any).expression.expression.getText();
-    const targetFunc = targetFinder.findName(instanceName)!;
 
     const ps = result.programNodes.get(callSite);
 
 
-    return alwaysExecuted(result.programNodes.get(callSite), (targetFunc as any).symbol);
+    return alwaysExecuted(result.programNodes.get(callSite), targetFuncSymbol);
 
 }

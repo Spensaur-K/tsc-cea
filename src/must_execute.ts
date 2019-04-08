@@ -14,6 +14,7 @@ import { firstLocalAncestor, FUNCTION_LIKE } from "./sonarts/sonarts-core/src/ut
 import { TypedSonarRuleVisitor } from "./sonarts/sonarts-core/src/utils/sonarAnalysis";
 import { isArrowFunction, isBlock, isIdentifier, isPropertyAccessExpression, isFunctionDeclaration, isFunctionLikeDeclaration, isCallExpression } from "./sonarts/sonarts-core/src/utils/nodes";
 import { TreeVisitor } from "./sonarts/sonarts-core/src/utils/visitor";
+import { InterProcedural } from "./sonarts/sonarts-core/src/se/stateTransitions";
 
 
 const { compilerOptions } = require("../tsconfig.json");
@@ -46,8 +47,8 @@ class FunctionCallFinder extends TreeVisitor {
             }
             //const line = this.src.getLineAndCharacterOfPosition(node.expression.getStart()).line + 1;
             //if (this.line - line < 2) {
-                this.result = node;
-                // Line numbers don't work, fuck it
+            this.result = node;
+            // Line numbers don't work, fuck it
             //    return;
             //}
         }
@@ -81,10 +82,10 @@ function symbolicAnalysis(fileName: string, enclosingFunc: ts.FunctionLikeDeclar
     return result!;
 }
 
-const analyzedProcedures = new Map<ts.FunctionLikeDeclaration, boolean[]>();
+const analyzedProcedures = new Map<ts.FunctionLikeDeclaration, InterProcedural>();
 
-function analyzeFunctionDeclaration(fileName: string, func: ts.FunctionLikeDeclaration): boolean[] {
-    const [prog, src, symbols] = programs[fileName];
+function analyzeFunctionDeclaration(fileName: string, func: ts.FunctionLikeDeclaration): InterProcedural {
+    const [prog, , symbols]: [ts.Program, ts.SourceFile, SymbolTable] = programs[fileName];
     const stmts = getStatements(func);
     const cfg = buildCFG(stmts)!;
     const ps = createInitialState(func, prog);
@@ -98,12 +99,17 @@ function analyzeFunctionDeclaration(fileName: string, func: ts.FunctionLikeDecla
         answers[i] = answers[i] && alwaysExecuted(pss, symbol);
     });
 
-    return answers;
+    const closure = symbols.allUsagesInside(func)
+    .map(usage => usage.symbol)
+    .filter(symbol => alwaysExecuted(pss, symbol));
+
+
+    return { parameters: answers, closure };
 }
 
 function interproceduralExecutionCheck(fileName: string, ) {
     const [prog, src, symbols] = programs[fileName];
-    function check(callExpression: ts.CallExpression): boolean[] {
+    function check(callExpression: ts.CallExpression): InterProcedural {
         const usage = symbols.getUsage(callExpression.expression);
         if (usage && usage.symbol.declarations.length > 0) {
             const declaration = usage.symbol.declarations[0];
@@ -117,7 +123,7 @@ function interproceduralExecutionCheck(fileName: string, ) {
                 }
             }
         }
-        return [];
+        return InterProcedural.Default;
     }
     return check;
 }
@@ -182,7 +188,6 @@ Function.prototype.mustHaveExecuted = function (): boolean {
 
     const ps = result.programNodes.get(callSite);
 
-    debugger;
     return alwaysExecuted(result.programNodes.get(callSite), targetFuncSymbol);
 
 }

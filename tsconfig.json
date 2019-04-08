@@ -29,6 +29,8 @@
   "files": [
     "src/index.ts",
     "samples/test.ts",
-    "samples/method.ts"
+    "samples/method.ts",
+    "samples/wtf.ts",
+    "demo/1_simple.ts"
   ]
 }

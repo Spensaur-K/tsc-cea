@@ -87,8 +87,7 @@ function analyzeFunctionDeclaration(fileName, func) {
         const symbol = param.symbol;
         answers[i] = answers[i] && alwaysExecuted(pss, symbol);
     });
-    const closure = symbols.allUsagesInside(func)
-        .map(usage => usage.symbol)
+    const closure = symbols.getSymbols()
         .filter(symbol => alwaysExecuted(pss, symbol));
     return { parameters: answers, closure };
 }

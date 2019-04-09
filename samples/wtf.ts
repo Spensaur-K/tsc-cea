@@ -4,14 +4,12 @@ function baz() {
 
 }
 
-function helper() {
-    baz();
+function helper(f: Function) {
+    f();
 }
 
 function main() {
-    if (Math.random() == -5) {
-        helper();
-    }
+    helper(baz);
     if (baz.mustHaveExecuted()) {
         console.log("YES!");
     } else {

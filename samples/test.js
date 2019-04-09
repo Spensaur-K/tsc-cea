@@ -1,17 +1,28 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 require("../src/must_execute");
-function helper(baz) {
-    baz();
+let foo;
+if (Math.random() > 0.5) {
+    foo = function () {
+        console.log(foo);
+    };
 }
-function main(foo) {
-    helper(foo);
-    if (foo.mustHaveExecuted()) {
+else {
+    foo = null;
+}
+function main() {
+    function target() {
+    }
+    foo();
+    if (foo) {
+        target();
+    }
+    if (target.mustHaveExecuted()) {
         console.log("YES!");
     }
     else {
         console.log("NO!");
     }
 }
-main(() => 0);
+main();
 //# sourceMappingURL=test.js.map

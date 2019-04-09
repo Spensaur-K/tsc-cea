@@ -31,6 +31,7 @@
     "samples/test.ts",
     "samples/method.ts",
     "samples/wtf.ts",
-    "demo/1_simple.ts"
+    "demo/1_simple.ts",
+    "demo/2_harder.ts"
   ]
 }

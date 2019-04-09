@@ -99,8 +99,7 @@ function analyzeFunctionDeclaration(fileName: string, func: ts.FunctionLikeDecla
         answers[i] = answers[i] && alwaysExecuted(pss, symbol);
     });
 
-    const closure = symbols.allUsagesInside(func)
-    .map(usage => usage.symbol)
+    const closure = symbols.getSymbols()
     .filter(symbol => alwaysExecuted(pss, symbol));
 
 
